@@ -1,350 +1,133 @@
-#!/usr/bin/env -S python3 -u
-"""
-This is heavily based on the NtripPerlClient program written by BKG.
-Then heavily based on a unavco original.
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-"""
-
 import socket
 import sys
 import datetime
 import base64
 import time
-from optparse import OptionParser
 import csv
-
 import serial
 from pynmeagps import NMEAReader
 
-version=0.2
-useragent="NTRIP JCMBsoftPythonClient/%.1f" % version
+version = 0.2
+useragent = f"NTRIP JCMBsoftPythonClient/{version:.1f}"
 
-# reconnect parameter (fixed values):
-factor=2 # How much the sleep time increases with each failed attempt
-maxReconnect=1
-maxReconnectTime=1200
-sleepTime=1 # So the first one is 1 second
+factor = 2
+maxReconnect = 1
+maxReconnectTime = 1200
+sleepTime = 1
 
-
-class NtripClient(object):
-    def __init__(self,
-                 buffer=50,
-                 user="",
-                 out=sys.stdout,
-                 port=2101,
-                 caster="",
-                 mountpoint="",
-                 lat=46,
-                 lon=122,
-                 height=1212,
-                 verbose=False,
-                 maxConnectTime=0
-                 ):
-        self.buffer=buffer
-        self.user=base64.b64encode(bytes(user,'utf-8')).decode("utf-8")
-        self.port=port
-        self.caster=caster
-        self.mountpoint=mountpoint
-        self.setPosition(lat, lon)
-        self.height=height
-        self.verbose=verbose
-        self.maxConnectTime=maxConnectTime
-        self.socket=None
+class NtripClient:
+    def __init__(self, buffer=50, user="", port=2101, caster="", mountpoint="", verbose=False, maxConnectTime=0):
+        self.buffer = buffer
+        self.user = base64.b64encode(user.encode()).decode("utf-8")
+        self.port = port
+        self.caster = caster
+        self.mountpoint = mountpoint
+        self.verbose = verbose
+        self.maxConnectTime = maxConnectTime
+        self.socket = None
         self.stream = serial.Serial('/dev/ttyS0', 115200, timeout=3)
         self.nmr = NMEAReader(self.stream)
-        
 
-
-    def setPosition(self, lat, lon):
-        self.flagN="N"
-        self.flagE="E"
-        if lon>180:
-            lon=(lon-360)*-1
-            self.flagE="W"
-        elif (lon<0 and lon>= -180):
-            lon=lon*-1
-            self.flagE="W"
-        elif lon<-180:
-            lon=lon+360
-            self.flagE="E"
-        else:
-            self.lon=lon
-        if lat<0:
-            lat=lat*-1
-            self.flagN="S"
-        self.lonDeg=int(lon)
-        self.latDeg=int(lat)
-        self.lonMin=(lon-self.lonDeg)*60
-        self.latMin=(lat-self.latDeg)*60
-
-    def getMountPointBytes(self):
-        mountPointString = "GET %s HTTP/1.1\r\nUser-Agent: %s\r\nAuthorization: Basic %s\r\n" % (self.mountpoint, useragent, self.user)
-#        mountPointString = "GET %s HTTP/1.1\r\nUser-Agent: %s\r\n" % (self.mountpoint, useragent)
-        mountPointString+="\r\n"
+    def get_mountpoint_bytes(self):
+        request = f"GET {self.mountpoint} HTTP/1.1\r\nUser-Agent: {useragent}\r\nAuthorization: Basic {self.user}\r\n\r\n"
         if self.verbose:
-           print (mountPointString)
-        return bytes(mountPointString,'ascii')
+            print(request)
+        return request.encode('ascii')
 
-    def getGGABytes(self):
+    def get_gga_bytes(self):
         while True:
-            (raw_data, parsed_data) = self.nmr.read()
-            if bytes("GNGGA",'ascii') in raw_data :
-                # print(parsed_data)
+            raw_data, parsed_data = self.nmr.read()
+            if b"GNGGA" in raw_data:
                 return raw_data
-
+    
     def append_to_file(self, time_stamp, lat, lon, speed, quality, hdop):
-        # try:
-        #     # Otwieramy plik w trybie append, aby dodawać nowe linie
-        #     with open('/home/pi/mgr/lc29h_gps_rtk_hat_code/python/rtk_rover/test.txt', 'a') as file:
-        #         file.write(f"{time_stamp} {lat} {lon} {speed}\n")
-        # except Exception as e:
-        #     print(f"Błąd przy zapisie do pliku: {e}")
-        
         try:
-            with open('/home/pi/mgr/lc29h_gps_rtk_hat_code/python/rtk_rover/test.csv', mode='a', newline='') as file:
+            with open('/home/pi/mgr/lc29h_gps_rtk_hat_code/python/rtk_rover/test.csv', 'a', newline='') as file:
                 writer = csv.writer(file)
-                # Sprawdzamy, czy plik jest pusty, jeśli tak, zapisujemy nagłówki
-                if file.tell() == 0:  # Jeśli plik jest pusty
-                    writer.writerow(["Time", "Latitude", "Longitude", "Speed", "Quality", "hdop"])  # Zapisujemy nagłówki
-                # Zapisujemy dane
+                if file.tell() == 0:
+                    writer.writerow(["Time", "Latitude", "Longitude", "Speed", "Quality", "HDOP"])
                 writer.writerow([time_stamp, lat, lon, speed, quality, hdop])
         except Exception as e:
             print(f"Błąd przy zapisie do pliku: {e}")
-
+    
+    def read_data(self):
+        reconnectTry, sleepTime = 1, 1
+        while reconnectTry <= maxReconnect:
+            if self.verbose:
+                sys.stderr.write(f'Connection {reconnectTry} of {maxReconnect}\n')
             
-    def readData(self):
-        quality = -1
-        hdop = -1
-        reconnectTry=1
-        sleepTime=1
-        reconnectTime=0
-        if self.maxConnectTime > 0 :
-            EndConnect=datetime.timedelta(seconds=maxConnectTime)
-        try:
-            while reconnectTry<=maxReconnect:
-                found_header=False
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if self.socket.connect_ex((self.caster, self.port)):
+                self.handle_reconnect(reconnectTry, sleepTime)
+                reconnectTry += 1
+                continue
+            
+            self.socket.settimeout(10)
+            self.socket.sendall(self.get_mountpoint_bytes())
+            if not self.process_headers():
+                return
+            
+            self.socket.sendall(self.get_gga_bytes())
+            self.process_data()
+            self.cleanup_connection()
+            return
+    
+    def handle_reconnect(self, reconnectTry, sleepTime):
+        if reconnectTry < maxReconnect:
+            sys.stderr.write(f"{datetime.datetime.now()} No Connection to NtripCaster. Trying again in {sleepTime} seconds\n")
+            time.sleep(sleepTime)
+            sleepTime = min(sleepTime * factor, maxReconnectTime)
+    
+    def process_headers(self):
+        while True:
+            response = self.socket.recv(4096).decode('utf-8').split("\r\n")
+            for line in response:
+                if not line:
+                    return True
+                if "SOURCETABLE" in line:
+                    sys.stderr.write("Mount point does not exist\n")
+                    sys.exit(1)
+                elif "401 Unauthorized" in line:
+                    sys.stderr.write("Unauthorized request\n")
+                    sys.exit(1)
+                elif "404 Not Found" in line:
+                    sys.stderr.write("Mount Point does not exist\n")
+                    sys.exit(2)
+                elif "200 OK" in line:
+                    return True
+        return False
+    
+    def process_data(self):
+        quality, hdop = -1, -1
+        while True:
+            try:
+                data = self.socket.recv(self.buffer)
+                if not data:
+                    break
+                self.stream.write(data)
+                raw_data, parsed_data = self.nmr.read()
+                if b"GNGGA" in raw_data:
+                    quality, hdop = parsed_data.quality, parsed_data.HDOP
+                if b"GNRMC" in raw_data:
+                    self.display_gps_data(parsed_data, quality, hdop)
+            except (socket.timeout, socket.error) as e:
                 if self.verbose:
-                    sys.stderr.write('Connection {0} of {1}\n'.format(reconnectTry,maxReconnect))
-
-                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-                error_indicator = self.socket.connect_ex((self.caster, self.port))
-                if error_indicator==0:
-                    sleepTime = 1
-                    connectTime=datetime.datetime.now()
-
-                    self.socket.settimeout(10)
-                    self.socket.sendall(self.getMountPointBytes())
-                    while not found_header:
-                        casterResponse=self.socket.recv(4096) #All the data
-                        # print(casterResponse)
-                        header_lines = casterResponse.decode('utf-8').split("\r\n")
-                        
-# header_lines empty, request fail,exit while loop
-                        for line in header_lines:
-                            if line=="":
-                                if not found_header:
-                                    found_header=True
-                                    if self.verbose:
-                                        sys.stderr.write("End Of Header"+"\n")
-                            else:
-                                if self.verbose:
-                                    sys.stderr.write("Header: " + line+"\n")
-
-
-
-
-#header_lines has content
-                        for line in header_lines:
-                            if line.find("SOURCETABLE")>=0:
-                                sys.stderr.write("Mount point does not exist")
-                                sys.exit(1)
-                            elif line.find("401 Unauthorized")>=0:
-                                sys.stderr.write("Unauthorized request\n")
-                                sys.exit(1)
-                            elif line.find("404 Not Found")>=0:
-                                sys.stderr.write("Mount Point does not exist\n")
-                                sys.exit(2)
-                            elif line.find("ICY 200 OK")>=0:
-                                #Request was valid
-                                self.socket.sendall(self.getGGABytes())
-                            elif line.find("HTTP/1.0 200 OK")>=0:
-                                #Request was valid
-                                self.socket.sendall(self.getGGABytes())
-                            elif line.find("HTTP/1.1 200 OK")>=0:
-                                #Request was valid
-                                self.socket.sendall(self.getGGABytes())
-
-
-
-                    data = "Initial data"
-                    while data:
-                        try:
-                            data=self.socket.recv(self.buffer)
-                            self.stream.write(data)
-                            (raw_data, parsed_data) = self.nmr.read()
-                            if bytes("GNGGA",'ascii') in raw_data :
-                                quality = parsed_data.quality
-                                hdop = parsed_data.HDOP
-                            if bytes("GNRMC",'ascii') in raw_data :
-                                # print(raw_data)
-                                time = parsed_data.time
-                                lat = parsed_data.lat
-                                lon = parsed_data.lon
-                                speed_knts = parsed_data.spd
-                                speed_kmh = speed_knts * 1.852
-                                print(f"Time: {time}, Latitude: {lat:.10f}, Longitude: {lon:.10f}, Speed_kmh: {speed_kmh:.5f}, Quality: {quality}, HDOP: {hdop:.3f}")
-                                self.append_to_file(time, lat, lon, speed_kmh, quality, hdop)
-                                
-                          
-#                            print datetime.datetime.now()-connectTime
-                            if maxConnectTime :
-                                if datetime.datetime.now() > connectTime+EndConnect:
-                                    if self.verbose:
-                                        sys.stderr.write("Connection Timed exceeded\n")
-                                    sys.exit(0)
-#                            self.socket.sendall(self.getGGAString())
-
-
-
-                        except socket.timeout:
-                            if self.verbose:
-                                sys.stderr.write('Connection TimedOut\n')
-                            data=False
-                        except socket.error:
-                            if self.verbose:
-                                sys.stderr.write('Connection Error\n')
-                            data=False
-
-                    if self.verbose:
-                        sys.stderr.write('Closing Connection\n')
-                    self.socket.close()
-                    self.socket=None
-
-                    if reconnectTry < maxReconnect :
-                        sys.stderr.write( "%s No Connection to NtripCaster.  Trying again in %i seconds\n" % (datetime.datetime.now(), sleepTime))
-                        time.sleep(sleepTime)
-                        sleepTime *= factor
-
-                        if sleepTime>maxReconnectTime:
-                            sleepTime=maxReconnectTime
-                    else:
-                        sys.exit(1)
-
-
-                    reconnectTry += 1
-                else:
-                    self.socket=None
-                    if self.verbose:
-                        print ("Error indicator: ", error_indicator)
-
-                    if reconnectTry < maxReconnect :
-                        sys.stderr.write( "%s No Connection to NtripCaster.  Trying again in %i seconds\n" % (datetime.datetime.now(), sleepTime))
-                        time.sleep(sleepTime)
-                        sleepTime *= factor
-                        if sleepTime>maxReconnectTime:
-                            sleepTime=maxReconnectTime
-                    reconnectTry += 1
-
-        except KeyboardInterrupt:
-            if self.socket:
-                self.socket.close()
-            self.stream.close()
-            sys.exit()
+                    sys.stderr.write(f'Connection Error: {e}\n')
+                break
+    
+    def display_gps_data(self, parsed_data, quality, hdop):
+        time, lat, lon = parsed_data.time, parsed_data.lat, parsed_data.lon
+        speed_kmh = parsed_data.spd * 1.852
+        print(f"Time: {time}, Latitude: {lat:.10f}, Longitude: {lon:.10f}, Speed_kmh: {speed_kmh:.5f}, Quality: {quality}, HDOP: {hdop:.3f}")
+    
+    def cleanup_connection(self):
+        if self.verbose:
+            sys.stderr.write('Closing Connection\n')
+        if self.socket:
+            self.socket.close()
+        self.stream.close()
 
 if __name__ == '__main__':
-#     usage="NtripClient.py [options] [caster] [port] mountpoint"
-#     parser=OptionParser(version=version, usage=usage)
-#     parser.add_option("-u", "--user", type="string", dest="user", default="IBS", help="The Ntripcaster username.  Default: %default")
-#     parser.add_option("-p", "--password", type="string", dest="password", default="IBS", help="The Ntripcaster password. Default: %default")
-#     parser.add_option("-o", "--org", type="string", dest="org", help="Use IBSS and the provided organization for the user. Caster and Port are not needed in this case Default: %default")
-#     parser.add_option("-b", "--baseorg", type="string", dest="baseorg", help="The org that the base is in. IBSS Only, assumed to be the user org")
-#     parser.add_option("-t", "--latitude", type="float", dest="lat", default=50.09, help="Your latitude.  Default: %default")
-#     parser.add_option("-g", "--longitude", type="float", dest="lon", default=8.66, help="Your longitude.  Default: %default")
-#     parser.add_option("-e", "--height", type="float", dest="height", default=1200, help="Your ellipsoid height.  Default: %default")
-#     parser.add_option("-v", "--verbose", action="store_true", dest="verbose", default=True, help="Verbose")
-#     parser.add_option("-H", "--host", action="store_true", dest="host", default=False, help="Include host header, should be on for IBSS")
-#     parser.add_option("-r", "--Reconnect", type="int", dest="maxReconnect", default=1, help="Number of reconnections")
-#     parser.add_option("-m", "--maxtime", type="int", dest="maxConnectTime", default=None, help="Maximum length of the connection, in seconds")
-
-#     (options, args) = parser.parse_args()
-#     # print(args)
-#     # print(len(args))
-#     ntripArgs = {}
-#     ntripArgs['lat']=options.lat
-#     ntripArgs['lon']=options.lon
-#     ntripArgs['height']=options.height
-#     ntripArgs['host']=options.host
-
-
-
-# #ignore
-#     if options.org:
-#         if len(args) != 1 :
-#             print ("Incorrect number of arguments for IBSS. You do not need to provide the server and port\n")
-#             parser.print_help()
-#             sys.exit(1)
-#         ntripArgs['user']=options.user+"."+options.org + ":" + options.password
-#         if options.baseorg:
-#             ntripArgs['caster']=options.baseorg + ".ibss.trimbleos.com"
-#         else:
-#             ntripArgs['caster']=options.org + ".ibss.trimbleos.com"
-       
-#         ntripArgs['port']=2101
-#         ntripArgs['mountpoint']=args[0]
-
-#     else:
-#         if len(args) != 3 :
-#             print ("Incorrect number of arguments for NTRIP\n")
-#             parser.print_help()
-#             sys.exit(1)
-# # execuet
-#         ntripArgs['user']=options.user+":"+options.password
-#         ntripArgs['caster']=args[0]
-#         ntripArgs['port']=int(args[1])
-#         ntripArgs['mountpoint']=args[2]
-
-#     if ntripArgs['mountpoint'][0:1] !="/":
-#         ntripArgs['mountpoint'] = "/"+ntripArgs['mountpoint']
-
-
-#     ntripArgs['verbose']=options.verbose
-
-
-#     maxReconnect=options.maxReconnect
-#     maxConnectTime=options.maxConnectTime
-
-#     if options.verbose:
-#         print ("Server: " + ntripArgs['caster'])
-#         print ("Port: " + str(ntripArgs['port']))
-#         print ("User: " + ntripArgs['user'])
-#         print ("mountpoint: " +ntripArgs['mountpoint'])
-#         print ("Reconnects: " + str(maxReconnect))
-#         print ("Max Connect Time: " + str (maxConnectTime))
-#         print ("NTRIP: V1")
-        
-#         print ("Uncrypted Connection")
-#         print ("")
-
-
-    maxReconnect=1
-    maxConnectTime=None
-
-
-    b = {'lat': 50.09, 'lon': 8.66, 'height': 1200, 'user': 'pwmgr/adamwrb:Globus7142001', 'caster': 'system.asgeupos.pl', 'port': 8080, 'mountpoint': '/RTN4G_VRS_RTCM32', 'verbose': True}
-    # a = ntripArgs
-    n = NtripClient(**b)
-    # n = NtripClient(**ntripArgs)
-
-    n.readData()
- 
+    config = {'user': 'pwmgr/adamwrb:Globus7142001', 'caster': 'system.asgeupos.pl', 'port': 8080, 'mountpoint': '/RTN4G_VRS_RTCM32', 'verbose': True}
+    client = NtripClient(**config)
+    client.read_data()
