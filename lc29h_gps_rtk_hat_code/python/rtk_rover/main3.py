@@ -16,7 +16,7 @@ maxReconnectTime = 1200
 sleepTime = 1
 
 class NtripClient:
-    def __init__(self, buffer=50, user="", port=2101, caster="", mountpoint="", verbose=False, maxConnectTime=0):
+    def __init__(self, buffer=50, user="", port=2101, caster="", mountpoint="", verbose=False, maxConnectTime=0, save_to_file=False, file_path="data.csv"):
         self.buffer = buffer
         self.user = base64.b64encode(user.encode()).decode("utf-8")
         self.port = port
@@ -24,6 +24,8 @@ class NtripClient:
         self.mountpoint = mountpoint
         self.verbose = verbose
         self.maxConnectTime = maxConnectTime
+        self.save_to_file = save_to_file
+        self.file_path = file_path
         self.socket = None
         self.stream = serial.Serial('/dev/ttyS0', 115200, timeout=3)
         self.nmr = NMEAReader(self.stream)
@@ -40,15 +42,6 @@ class NtripClient:
             if b"GNGGA" in raw_data:
                 return raw_data
     
-    def append_to_file(self, time_stamp, lat, lon, speed, quality, hdop):
-        try:
-            with open('/home/pi/mgr/lc29h_gps_rtk_hat_code/python/rtk_rover/test.csv', 'a', newline='') as file:
-                writer = csv.writer(file)
-                if file.tell() == 0:
-                    writer.writerow(["Time", "Latitude", "Longitude", "Speed", "Quality", "HDOP"])
-                writer.writerow([time_stamp, lat, lon, speed, quality, hdop])
-        except Exception as e:
-            print(f"Błąd przy zapisie do pliku: {e}")
     
     def read_data(self):
         reconnectTry, sleepTime = 1, 1
@@ -110,6 +103,7 @@ class NtripClient:
                     quality, hdop = parsed_data.quality, parsed_data.HDOP
                 if b"GNRMC" in raw_data:
                     self.display_gps_data(parsed_data, quality, hdop)
+                    self.append_to_file(parsed_data, quality, hdop)
             except (socket.timeout, socket.error) as e:
                 if self.verbose:
                     sys.stderr.write(f'Connection Error: {e}\n')
@@ -119,7 +113,20 @@ class NtripClient:
         time, lat, lon = parsed_data.time, parsed_data.lat, parsed_data.lon
         speed_kmh = parsed_data.spd * 1.852
         print(f"Time: {time}, Latitude: {lat:.10f}, Longitude: {lon:.10f}, Speed_kmh: {speed_kmh:.5f}, Quality: {quality}, HDOP: {hdop:.3f}")
-    
+
+    def append_to_file(self, parsed_data, quality, hdop):
+        if not self.save_to_file:
+            return
+        time, lat, lon = parsed_data.time, parsed_data.lat, parsed_data.lon
+        speed_kmh = parsed_data.spd * 1.852
+        try:
+            with open(self.file_path, 'a', newline='') as file:
+                writer = csv.writer(file)
+                if file.tell() == 0:
+                    writer.writerow(["Time", "Latitude", "Longitude", "Speed", "Quality", "HDOP"])
+                writer.writerow([time, lat, lon, speed_kmh, quality, hdop])
+        except Exception as e:
+            print(f"Błąd przy zapisie do pliku: {e}")
     def cleanup_connection(self):
         if self.verbose:
             sys.stderr.write('Closing Connection\n')
@@ -128,6 +135,14 @@ class NtripClient:
         self.stream.close()
 
 if __name__ == '__main__':
-    config = {'user': 'pwmgr/adamwrb:Globus7142001', 'caster': 'system.asgeupos.pl', 'port': 8080, 'mountpoint': '/RTN4G_VRS_RTCM32', 'verbose': True}
+    config = {
+        'user': 'pwmgr/adamwrb:Globus7142001',
+        'caster': 'system.asgeupos.pl',
+        'port': 8080,
+        'mountpoint': '/RTN4G_VRS_RTCM32',
+        'verbose': True,
+        'save_to_file': True,
+        'file_path': '/home/pi/mss/lc29h_gps_rtk_hat_code/python/rtk_rover/test4.csv'
+    }
     client = NtripClient(**config)
     client.read_data()
