@@ -3,13 +3,15 @@ import socket
 import base64
 import time
 import csv
+import threading
 from pynmeagps import NMEAReader
 import os
 from datetime import datetime
 
 
-class GPSrtk:
-    def __init__(self, serial_port, baudrate, caster, port, mountpoint, user, save_file = False, filename = None):
+class GPSrtk(threading.Thread):
+    def __init__(self, serial_port, baudrate, caster, port, mountpoint, user, save_file=False, filename=None):
+        threading.Thread.__init__(self)
         self.serial_port = serial_port
         self.baudrate = baudrate
         self.caster = caster
@@ -26,6 +28,8 @@ class GPSrtk:
         self.base_path = '/home/pi/mss/data/'
         self.filename = 'pi4.csv' if filename is None else filename
         self.save_file = save_file
+        self.latest_data = None
+        self.running = True
 
     def connect_ntrip(self):
         """Connect to ntrip server"""
@@ -48,7 +52,7 @@ class GPSrtk:
         except Exception as e:
             print(f"Error connecting to NTRIP caster: {e}")
             return False
-    
+
     def connect_gnss(self):
         """Connect to GPS module via UART"""
         try:
@@ -66,7 +70,6 @@ class GPSrtk:
             try:
                 gga_string += "\r\n"
                 self.sock.send(gga_string.encode())
-                # print(f"Sent GGA: {gga_string}")
                 response = self.sock.recv(4096)
                 return response
             except Exception as e:
@@ -85,7 +88,7 @@ class GPSrtk:
         except Exception as e:
             print(f"Error receiving RTCM data: {e}")
             self.reconnect_ntrip()
-    
+
     def reconnect_ntrip(self):
         """Ponawia połączenie z serwerem NTRIP"""
         print("Reconnecting to NTRIP server...")
@@ -95,44 +98,39 @@ class GPSrtk:
         self.connect_ntrip()
 
     def append_to_file(self):
-        if self.save_file:
+        if self.save_file and self.GGAdata and self.VTGdata:
             try:
-                # Tworzenie ścieżki z aktualną datą
                 current_date = datetime.now().strftime('%Y-%m-%d')
                 data_dir = os.path.join(self.base_path, current_date)
-                
-                # Tworzenie folderu jeśli nie istnieje
                 os.makedirs(data_dir, exist_ok=True)
-                
-                # Pełna ścieżka do pliku
                 file_path = os.path.join(data_dir, self.filename)
-                
                 with open(file_path, 'a', newline='') as file:
                     writer = csv.writer(file)
                     if file.tell() == 0:
                         writer.writerow(["Time", "Latitude", "Longitude", "Speed", "Quality"])
-                    writer.writerow([self.GGAdata.time, f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}", self.VTGdata.sogk, self.GGAdata.quality])
+                    writer.writerow([self.GGAdata.time, f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}",
+                                     self.VTGdata.sogk, self.GGAdata.quality])
             except Exception as e:
                 print(f"Błąd przy zapisie do pliku: {e}")
 
     def print_data(self):
         if self.GGAdata and self.VTGdata:
             print(f"Time: {self.GGAdata.time}, Lat: {self.GGAdata.lat:.8f}, "
-                f"Lon: {self.GGAdata.lon:.8f}, Speed: {self.VTGdata.sogk} km/s, "
-                f"Fix Quality: {self.GGAdata.quality}")
+                  f"Lon: {self.GGAdata.lon:.8f}, Speed: {self.VTGdata.sogk} km/s, "
+                  f"Fix Quality: {self.GGAdata.quality}")
 
+    def get_latest_data(self):
+        return self.latest_data
 
-    
-    def run(self):
-        # Establish NTRIP connaction
+    def establish_connection(self):
         if not self.connect_ntrip():
             return
-        
-        # Establish connection with GPS module
         if not self.connect_gnss():
             return
 
-        while True:
+    def run(self):
+        self.establish_connection()
+        while self.running:
             try:
                 if self.serial_com:
                     raw_data, parsed_data = self.nmr.read()
@@ -142,49 +140,24 @@ class GPSrtk:
                         self.GGAdata = parsed_data
                     if b"GNVTG" in raw_data:
                         self.VTGdata = parsed_data
-                        self.print_data()
+                    if self.GGAdata and self.VTGdata:
+                        self.latest_data = {
+                            "time": self.GGAdata.time,
+                            "lat": self.GGAdata.lat,
+                            "lon": self.GGAdata.lon,
+                            "speed": self.VTGdata.sogk,
+                            "quality": self.GGAdata.quality,
+                        }
                         self.append_to_file()
-                
 
-                    #     print(NMEAmessage)
-                    # if NMEAmessage.startswith("$GNVTG"):
-                    #     print(NMEAmessage)
-                    #     print()
-
-
-
-
-
-
-                    # NMEAmessage = self.serial_com.readline().decode(errors='ignore').strip()
-                    # NMEAmessage = self.serial_com.readline().decode(errors='ignore').strip()
-                    # if NMEAmessage.startswith("$GNGGA"):
-                    #     print(NMEAmessage)
-                    #     RTCM_response = self.send_gga_to_ntrip(NMEAmessage)
-                    #     self.serial_com.write(RTCM_response)
-                    # if NMEAmessage.startswith("$GNVTG"):
-                    #     print(NMEAmessage)
-                    #     print()
-                        
             except KeyboardInterrupt:
-                print("Stopping client...")
+                print("Stopping GPS thread...")
+                self.running = False
                 if self.sock:
                     self.sock.close()
                 if self.serial_com:
                     self.serial_com.close()
                 break
             except Exception as e:
-                print(f"Unexpected error: {e}")
+                print(f"Unexpected error in GPS thread: {e}")
                 time.sleep(2)
-
-if __name__ == "__main__":
-    client = GPSrtk(
-        serial_port='/dev/ttyUSB0', 
-        baudrate=115200, 
-        caster='system.asgeupos.pl', 
-        port=8080, 
-        mountpoint='/RTN4G_VRS_RTCM32', 
-        user='pwmgr/adamwrb:Globus7142001',
-        save_file=True,
-    )
-    client.run()

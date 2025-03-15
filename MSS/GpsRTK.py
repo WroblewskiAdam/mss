@@ -115,7 +115,7 @@ class GPSrtk:
 
 if __name__ == "__main__":
     client = GPSrtk(
-        serial_port='/dev/ttyUSB0', 
+        serial_port='/dev/ttyS0', 
         baudrate=115200, 
         caster='system.asgeupos.pl', 
         port=8080, 
