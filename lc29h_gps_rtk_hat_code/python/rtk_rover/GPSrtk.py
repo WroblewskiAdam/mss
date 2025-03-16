@@ -31,6 +31,8 @@ class GPSrtk(threading.Thread):
         self.latest_data = None
         self.running = True
 
+        self.new_data = False
+
     def connect_ntrip(self):
         """Connect to ntrip server"""
         ntrip_request = (
@@ -120,7 +122,11 @@ class GPSrtk(threading.Thread):
                   f"Fix Quality: {self.GGAdata.quality}")
 
     def get_latest_data(self):
-        return self.latest_data
+        if self.new_data:
+            self.new_data = False
+            return self.latest_data
+        else:
+            return None
 
     def establish_connection(self):
         if not self.connect_ntrip():
@@ -138,9 +144,9 @@ class GPSrtk(threading.Thread):
                         RTCM_response = self.send_gga_to_ntrip(raw_data.decode())
                         self.serial_com.write(RTCM_response)
                         self.GGAdata = parsed_data
+                    
                     if b"GNVTG" in raw_data:
                         self.VTGdata = parsed_data
-                    if self.GGAdata and self.VTGdata:
                         self.latest_data = {
                             "time": self.GGAdata.time,
                             "lat": self.GGAdata.lat,
@@ -148,7 +154,8 @@ class GPSrtk(threading.Thread):
                             "speed": self.VTGdata.sogk,
                             "quality": self.GGAdata.quality,
                         }
-                        self.append_to_file()
+                        self.new_data = True
+
 
             except KeyboardInterrupt:
                 print("Stopping GPS thread...")
@@ -161,3 +168,17 @@ class GPSrtk(threading.Thread):
             except Exception as e:
                 print(f"Unexpected error in GPS thread: {e}")
                 time.sleep(2)
+
+if __name__ == "__main__":
+    gps_client = GPSrtk(
+        serial_port='/dev/ttyUSB0',
+        baudrate=115200,
+        caster='system.asgeupos.pl',
+        port=8080,
+        mountpoint='/RTN4G_VRS_RTCM32',
+        user='pwmgr/adamwrb:Globus7142001',
+        save_file=True,
+        filename='pi4.csv'
+    )
+    gps_client.establish_connection()
+    gps_client.run()
