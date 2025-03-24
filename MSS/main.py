@@ -4,7 +4,7 @@ import time
 import sys
 sys.path.append("/home/pi/mss")
 from lc29h_gps_rtk_hat_code.python.rtk_rover.GPSrtk import GPSrtk
-from IMU.imu_reader import IMUReader
+from mss.IMU.IMUreader_threading import IMUReader
 
 
 def main():
