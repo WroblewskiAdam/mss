@@ -1,2 +1,3 @@
 mss_venv/
 *.csv
+__pycache__/

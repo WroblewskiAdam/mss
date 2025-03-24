@@ -23,8 +23,10 @@ class GPSrtk:
         self.VTGdata = None
 
         self.base_path = '/home/pi/mss/data/'
-        self.filename = 'pi4.csv' if filename is None else filename
+        self.filename = 'gps_data_v1.csv' if filename is None else filename
         self.save_file = save_file
+        self.hostname = socket.gethostname()
+
 
     def connect_ntrip(self):
         """Connect to ntrip server"""
@@ -94,31 +96,33 @@ class GPSrtk:
         self.connect_ntrip()
 
     def append_to_file(self):
-        if self.save_file:
+        if self.save_file and self.GGAdata and self.VTGdata:
             try:
                 # Tworzenie ścieżki z aktualną datą
                 current_date = datetime.now().strftime('%Y-%m-%d')
-                data_dir = os.path.join(self.base_path, current_date)
-                
-                # Tworzenie folderu jeśli nie istnieje
-                os.makedirs(data_dir, exist_ok=True)
+                date_dir = os.path.join(self.base_path, current_date)
+
+                # Tworzenie podfolderu z nazwą hosta
+                hostname_dir = os.path.join(date_dir, self.hostname)
+
+                # Tworzenie folderów jeśli nie istnieją
+                os.makedirs(hostname_dir, exist_ok=True)
                 
                 # Pełna ścieżka do pliku
-                file_path = os.path.join(data_dir, self.filename)
-                
+                file_path = os.path.join(hostname_dir, self.filename)
+                local_time = datetime.now().strftime('%H:%M:%S.%f')[:-3]                
                 with open(file_path, 'a', newline='') as file:
                     writer = csv.writer(file)
                     if file.tell() == 0:
-                        writer.writerow(["Time", "Latitude", "Longitude", "Speed", "Quality"])
-                    writer.writerow([self.GGAdata.time, f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}", self.VTGdata.sogk, self.GGAdata.quality])
+                        writer.writerow(["Local Time", "GPS Time", "Latitude", "Longitude", "Heading", "Speed", "Quality"])
+                    writer.writerow([local_time, self.GGAdata.time, f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}", f"{self.VTGdata.cogt:.2f}" , self.VTGdata.sogk, self.GGAdata.quality])
             except Exception as e:
                 print(f"Błąd przy zapisie do pliku: {e}")
 
     def print_data(self):
         if self.GGAdata and self.VTGdata:
-            print(f"Time: {self.GGAdata.time}, Lat: {self.GGAdata.lat:.8f}, "
-                f"Lon: {self.GGAdata.lon:.8f}, Speed: {self.VTGdata.sogk} km/s, "
-                f"Fix Quality: {self.GGAdata.quality}")
+            local_time = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            print(f"T: {local_time}, Tgps: {self.GGAdata.time}, Lat: {self.GGAdata.lat:.4f}, " f"Lon: {self.GGAdata.lon:.4f}, C: {self.VTGdata.cogt:.2f}, V: {self.VTGdata.sogk:.3f} km/s, " f"Q: {self.GGAdata.quality}")
 
 
     def run(self):
