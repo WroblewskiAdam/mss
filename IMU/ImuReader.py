@@ -8,7 +8,7 @@ from datetime import datetime
 import socket
 
 class IMUReader:
-    def __init__(self, sampling_frequency=200, output_frequency=10, window_size=20, save_file=True, base_path='/home/pi/mss/data/', filename='imu_data.csv'):
+    def __init__(self, sampling_frequency=200, output_frequency=10, window_size=20, save_file=True, base_path='/home/pi/mss/data/', filename='imu_data_v2.csv'):
         self.sampling_frequency = sampling_frequency
         self.output_frequency = output_frequency
         self.window_size = window_size

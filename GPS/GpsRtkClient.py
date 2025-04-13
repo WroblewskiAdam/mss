@@ -23,7 +23,7 @@ class GPSrtk:
         self.VTGdata = None
 
         self.base_path = '/home/pi/mss/data/'
-        self.filename = 'gps_data_v1.csv' if filename is None else filename
+        self.filename = 'gps_data_v2.csv' if filename is None else filename
         self.save_file = save_file
         self.hostname = socket.gethostname()
 
