@@ -1,11 +1,13 @@
 import threading
 import time
 from datetime import datetime
+import os
 import sys
+import csv
 
 sys.path.append("/home/pi/mss")
-from GPS.GpsRtkClient import GPSrtk  # Zaimportuj klasę GPSrtk z GPSrtk.py
-from IMU.ImuReader import IMUReader  # import board
+from GPS.GpsRtkClient import GPSrtk
+from IMU.ImuReader import IMUReader
 
 import board
 import busio
@@ -22,69 +24,110 @@ from adafruit_bno08x.i2c import BNO08X_I2C
 
 # ---------- Funkcja IMU ----------
 def run_imu(stop_event):
-    # import board  # Przeniesione tu, żeby uniknąć błędu, gdy IMU wyłączone
+    try:
+        print("[IMU] Startuję...")
 
-    i2c = busio.I2C(board.SCL, board.SDA, frequency=400000)
-    bno = BNO08X_I2C(i2c)
-    time.sleep(1)
+        date_str = datetime.now().strftime("%d-%m-%y")
+        imu_dir = f"data/{date_str}/imu"
+        os.makedirs(imu_dir, exist_ok=True)
+        imu_file_path = os.path.join(imu_dir, "imu_data.csv")
 
-    bno.enable_feature(BNO_REPORT_ACCELEROMETER)
-    bno.enable_feature(BNO_REPORT_GYROSCOPE)
-    bno.enable_feature(BNO_REPORT_MAGNETOMETER)
-    bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
-    bno.enable_feature(BNO_REPORT_LINEAR_ACCELERATION)
+        with open(imu_file_path, mode='w', newline='') as imu_file:
+            imu_writer = csv.writer(imu_file)
+            imu_writer.writerow([
+                "Timestamp",
+                "Accel_X", "Accel_Y", "Accel_Z",
+                "LinAccel_X", "LinAccel_Y", "LinAccel_Z",
+                "Gyro_X", "Gyro_Y", "Gyro_Z",
+                "Mag_X", "Mag_Y", "Mag_Z",
+                "Quat_I", "Quat_J", "Quat_K", "Quat_Real",
+                "Roll", "Pitch", "Yaw"
+            ])
 
-    def quaternion_to_euler(w, x, y, z):
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        roll_x = math.atan2(t0, t1)
+            print("[IMU] Inicjalizacja I2C...")
+            i2c = busio.I2C(board.SCL, board.SDA, frequency=400000)
+            print("[IMU] Tworzenie obiektu BNO08X...")
+            bno = BNO08X_I2C(i2c)
+            time.sleep(1)
 
-        t2 = +2.0 * (w * y - z * x)
-        t2 = max(min(t2, +1.0), -1.0)
-        pitch_y = math.asin(t2)
+            print("[IMU] Włączanie funkcji...")
+            bno.enable_feature(BNO_REPORT_ACCELEROMETER)
+            bno.enable_feature(BNO_REPORT_GYROSCOPE)
+            bno.enable_feature(BNO_REPORT_MAGNETOMETER)
+            bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
+            bno.enable_feature(BNO_REPORT_LINEAR_ACCELERATION)
 
-        t3 = +2.0 * (w * z + x * y)
-        t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw_z = math.atan2(t3, t4)
+            print("[IMU] Startuję pętlę pomiarową...")
 
-        return roll_x, pitch_y, yaw_z
+            def quaternion_to_euler(w, x, y, z):
+                t0 = +2.0 * (w * x + y * z)
+                t1 = +1.0 - 2.0 * (x * x + y * y)
+                roll_x = math.atan2(t0, t1)
 
-    interval = 0.1  # 100 ms = 10 Hz
-    last_time = time.perf_counter()
-    
-    while not stop_event.is_set():
-        now = time.perf_counter()
-        if now - last_time >= interval:
-            last_time = now
-            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-            try:
-                accel_x, accel_y, accel_z = bno.acceleration
-                lin_accel_x, lin_accel_y, lin_accel_z = bno.linear_acceleration
-                gyro_x, gyro_y, gyro_z = bno.gyro
-                mag_x, mag_y, mag_z = bno.magnetic
-                quat_i, quat_j, quat_k, quat_real = bno.quaternion
-                roll, pitch, yaw = quaternion_to_euler(quat_real, quat_i, quat_j, quat_k)
+                t2 = +2.0 * (w * y - z * x)
+                t2 = max(min(t2, +1.0), -1.0)
+                pitch_y = math.asin(t2)
 
-                print(
-                    "%s | X: %.3f Y: %.3f Z: %.3f m/s^2 | X: %.3f Y: %.3f Z: %.3f m/s^2 | "
-                    "X: %.3f Y: %.3f Z: %.3f rads/s | X: %.3f Y: %.3f Z: %.3f uT | "
-                    "I: %.3f J: %.3f K: %.3f Real: %.3f | R: %.3f P: %.3f Y: %.3f" % (
-                        timestamp,
-                        accel_x, accel_y, accel_z,
-                        lin_accel_x, lin_accel_y, lin_accel_z,
-                        gyro_x, gyro_y, gyro_z,
-                        mag_x, mag_y, mag_z,
-                        quat_i, quat_j, quat_k, quat_real,
-                        roll, pitch, yaw
-                    )
-                )
+                t3 = +2.0 * (w * z + x * y)
+                t4 = +1.0 - 2.0 * (y * y + z * z)
+                yaw_z = math.atan2(t3, t4)
 
-            except Exception as e:
-                print(f"Błąd odczytu z IMU: {e}")
+                return roll_x, pitch_y, yaw_z
+
+            interval = 0.1
+            last_time = time.perf_counter()
+
+            while not stop_event.is_set():
+                now = time.perf_counter()
+                if now - last_time >= interval:
+                    last_time = now
+                    timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                    try:
+                        accel_x, accel_y, accel_z = bno.acceleration
+                        lin_accel_x, lin_accel_y, lin_accel_z = bno.linear_acceleration
+                        gyro_x, gyro_y, gyro_z = bno.gyro
+                        mag_x, mag_y, mag_z = bno.magnetic
+                        quat_i, quat_j, quat_k, quat_real = bno.quaternion
+                        roll, pitch, yaw = quaternion_to_euler(quat_real, quat_i, quat_j, quat_k)
+
+                        print(
+                            "%s | X: %.3f Y: %.3f Z: %.3f m/s^2 | X: %.3f Y: %.3f Z: %.3f m/s^2 | "
+                            "X: %.3f Y: %.3f Z: %.3f rads/s | X: %.3f Y: %.3f Z: %.3f uT | "
+                            "I: %.3f J: %.3f K: %.3f Real: %.3f | R: %.3f P: %.3f Y: %.3f" % (
+                                timestamp,
+                                accel_x, accel_y, accel_z,
+                                lin_accel_x, lin_accel_y, lin_accel_z,
+                                gyro_x, gyro_y, gyro_z,
+                                mag_x, mag_y, mag_z,
+                                quat_i, quat_j, quat_k, quat_real,
+                                roll, pitch, yaw
+                            )
+                        )
+
+                        imu_writer.writerow([
+                            timestamp,
+                            f"{accel_x:.4f}", f"{accel_y:.4f}", f"{accel_z:.4f}",
+                            f"{lin_accel_x:.4f}", f"{lin_accel_y:.4f}", f"{lin_accel_z:.4f}",
+                            f"{gyro_x:.4f}", f"{gyro_y:.4f}", f"{gyro_z:.4f}",
+                            f"{mag_x:.4f}", f"{mag_y:.4f}", f"{mag_z:.4f}",
+                            f"{quat_i:.4f}", f"{quat_j:.4f}", f"{quat_k:.4f}", f"{quat_real:.4f}",
+                            f"{roll:.4f}", f"{pitch:.4f}", f"{yaw:.4f}"
+                        ])
+
+                    except Exception as e:
+                        print(f"[IMU] Błąd odczytu: {e}")
+    except Exception as e:
+        print(f"[IMU] Błąd inicjalizacji: {e}")
 
 
 # ---------- Funkcja GPS ----------
 def run_gps(stop_event):
+    # Tworzenie ścieżki i pliku CSV
+    date_str = datetime.now().strftime("%d-%m-%y")
+    gps_dir = f"data/{date_str}/gps"
+    os.makedirs(gps_dir, exist_ok=True)
+    gps_file_path = os.path.join(gps_dir, "gps_data.csv")
+
     gps = GPSrtk(
         serial_port='/dev/ttyUSB0',
         baudrate=115200,
@@ -100,20 +143,38 @@ def run_gps(stop_event):
     if not gps.connect_gnss():
         return
 
-    while not stop_event.is_set():
-        try:
-            raw_data, parsed_data = gps.nmr.read()
-            if raw_data is None:
-                continue
-            if b"GNGGA" in raw_data:
-                RTCM_response = gps.send_gga_to_ntrip(raw_data.decode())
-                gps.serial_com.write(RTCM_response)
-                gps.GGAdata = parsed_data
-            if b"GNVTG" in raw_data:
-                gps.VTGdata = parsed_data
-                gps.print_data()
-        except Exception as e:
-            print(f"Błąd w pętli GPS: {e}")
+    with open(gps_file_path, mode='w', newline='') as gps_file:
+        gps_writer = csv.writer(gps_file)
+        gps_writer.writerow([
+            "Timestamp", "Latitude", "Longitude", "Altitude", "Course", "Speed_og" "Quality"
+        ])
+
+        while not stop_event.is_set():
+            try:
+                raw_data, parsed_data = gps.nmr.read()
+                if raw_data is None:
+                    continue
+                if b"GNGGA" in raw_data:
+                    RTCM_response = gps.send_gga_to_ntrip(raw_data.decode())
+                    gps.serial_com.write(RTCM_response)
+                    gps.GGAdata = parsed_data
+                if b"GNVTG" in raw_data:
+                    gps.VTGdata = parsed_data
+                    gps.print_data()
+
+                    timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                    if gps.GGAdata and gps.VTGdata:
+                        gps_writer.writerow([
+                            timestamp,
+                            f"{gps.GGAdata.lat:.8f}",
+                            f"{gps.GGAdata.lon:.8f}",
+                            f"{gps.GGAdata.alt:.8f}",
+                            f"{gps.VTGdata.cogt:.4f}",
+                            f"{gps.VTGdata.sogk:.4f}",
+                            gps.GGAdata.quality,
+                        ])
+            except Exception as e:
+                print(f"Błąd w pętli GPS: {e}")
 
 
 # ---------- Główna część ----------
@@ -121,9 +182,8 @@ if __name__ == "__main__":
     stop_event = threading.Event()
 
     try:
-        # GPS i IMU jako wątki
         gps_thread = threading.Thread(target=run_gps, args=(stop_event,))
-        imu_thread = threading.Thread(target=run_imu, args=(stop_event,))  # Możesz zakomentować, jeśli nie chcesz
+        imu_thread = threading.Thread(target=run_imu, args=(stop_event,))
 
         gps_thread.start()
         imu_thread.start()
