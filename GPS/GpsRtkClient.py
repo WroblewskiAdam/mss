@@ -3,12 +3,11 @@ import socket
 import base64
 import time
 import csv
-from pynmeagps import NMEAReader
 import os
 from datetime import datetime
 
 class GPSrtk:
-    def __init__(self, serial_port, baudrate, caster, port, mountpoint, user, save_file = False, filename = None):
+    def __init__(self, serial_port, baudrate, caster, port, mountpoint, user, filename, save_file = True):
         self.serial_port = serial_port
         self.baudrate = baudrate
         self.caster = caster
@@ -17,21 +16,22 @@ class GPSrtk:
         self.user = user
         self.sock = None
         self.serial_com = None
-        self.nmr = None
 
         self.GGAdata = None
         self.VTGdata = None
 
         self.base_path = '/home/pi/mss/data/'
-        self.filename = 'gps_data_v2.csv' if filename is None else filename
+        self.filename = filename
         self.save_file = save_file
         self.hostname = socket.gethostname()
         self.fix = None
-        self.last_gga_sent = None
+        self.last_gga_sent_to_ntrip = None
+        self.init_gga_sent = False
+        self.send_gga_interval = 10
+        self.message_dt = 0
 
 
     def connect_ntrip(self):
-        """Connect to ntrip server"""
         ntrip_request = (
             f"GET {self.mountpoint} HTTP/1.0\r\n"
             f"User-Agent: NTRIP PythonClient\r\n"
@@ -51,12 +51,10 @@ class GPSrtk:
         except Exception as e:
             print(f"Error connecting to NTRIP caster: {e}")
             return False
-    
+
     def connect_gnss(self):
-        """Connect to GPS module via UART"""
         try:
             self.serial_com = serial.Serial(self.serial_port, self.baudrate, timeout=1)
-            self.nmr = NMEAReader(self.serial_com)
             print("Connected to GNSS module")
             return True
         except Exception as e:
@@ -64,12 +62,10 @@ class GPSrtk:
             return False
 
     def send_gga_to_ntrip(self, gga_string):
-        """Send GGA message to NTRIP server, returns RTCM message with corrections as response"""
         if self.sock:
             try:
                 gga_string += "\r\n"
                 self.sock.send(gga_string.encode())
-                # print(f"Sent GGA: {gga_string}")
                 response = self.sock.recv(4096)
                 return response
             except Exception as e:
@@ -77,20 +73,18 @@ class GPSrtk:
                 self.reconnect_ntrip()
 
     def receive_rtcm(self):
-        """Odbiera dane RTCM z serwera NTRIP"""
         try:
             response = self.sock.recv(4096)
             if response:
-                print(f"Received {len(response)} bytes of RTCM data.")
+                return response
             else:
                 print("Lost connection to NTRIP server, reconnecting...")
                 self.reconnect_ntrip()
         except Exception as e:
             print(f"Error receiving RTCM data: {e}")
             self.reconnect_ntrip()
-    
+
     def reconnect_ntrip(self):
-        """Ponawia połączenie z serwerem NTRIP"""
         print("Reconnecting to NTRIP server...")
         if self.sock:
             self.sock.close()
@@ -100,31 +94,33 @@ class GPSrtk:
     def append_to_file(self):
         if self.save_file and self.GGAdata and self.VTGdata:
             try:
-                # Tworzenie ścieżki z aktualną datą
-                current_date = datetime.now().strftime('%Y-%m-%d')
-                date_dir = os.path.join(self.base_path, current_date)
+                date_str = datetime.now().strftime("%d-%m-%y")
+                dir = f"data/{date_str}/pi41/"
+                os.makedirs(dir, exist_ok=True)
+                file_path = os.path.join(dir, self.filename)
+                local_time = datetime.now().strftime('%H:%M:%S.%f')[:-3]
 
-                # Tworzenie podfolderu z nazwą hosta
-                hostname_dir = os.path.join(date_dir, self.hostname)
-
-                # Tworzenie folderów jeśli nie istnieją
-                os.makedirs(hostname_dir, exist_ok=True)
-                
-                # Pełna ścieżka do pliku
-                file_path = os.path.join(hostname_dir, self.filename)
-                local_time = datetime.now().strftime('%H:%M:%S.%f')[:-3]                
                 with open(file_path, 'a', newline='') as file:
                     writer = csv.writer(file)
                     if file.tell() == 0:
-                        writer.writerow(["Local Time", "GPS Time", "Latitude", "Longitude", "Heading", "Speed", "Quality"])
-                    writer.writerow([local_time, self.GGAdata.time, f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}", f"{self.VTGdata.cogt:.2f}" , self.VTGdata.sogk, self.GGAdata.quality])
+                        writer.writerow(["dt, Local Time", "GPS Time", "Latitude", "Longitude", "Heading", "Speed", "Quality"])
+                    writer.writerow([
+                        f"{self.message_dt:.3f}", local_time, self.GGAdata.time,
+                        f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}",
+                        f"{self.VTGdata.cogt:.2f}", self.VTGdata.sogk,
+                        self.GGAdata.quality
+                    ])
             except Exception as e:
                 print(f"Błąd przy zapisie do pliku: {e}")
+
 
     def print_data(self):
         if self.GGAdata and self.VTGdata:
             local_time = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-            print(f"T: {local_time}, Tgps: {self.GGAdata.time}, Lat: {self.GGAdata.lat:.4f}, " f"Lon: {self.GGAdata.lon:.4f}, C: {self.VTGdata.cogt:.2f}, V: {self.VTGdata.sogk:.3f} km/s, " f"Q: {self.GGAdata.quality}")
+            print(f"dt: {self.message_dt:.3f},T: {local_time}, Tgps: {self.GGAdata.time}, Lat: {self.GGAdata.lat:.4f}, "
+                  f"Lon: {self.GGAdata.lon:.4f}, C: {self.VTGdata.cogt:.2f}, "
+                  f"V: {self.VTGdata.sogk:.3f} km/s, Q: {self.GGAdata.quality}")
+
 
     def process_gga(self, parsed_data, raw_data):
         self.fix = parsed_data.quality
@@ -132,67 +128,128 @@ class GPSrtk:
 
         if self.fix != 0:
             current_time = time.time()
-            if current_time - self.last_gga_sent >= 10:
-                RTCM_response = self.send_gga_to_ntrip(raw_data.decode())
+            if current_time - self.last_gga_sent_to_ntrip >= self.send_gga_interval or not self.init_gga_sent:
+                RTCM_response = self.send_gga_to_ntrip(raw_data)
                 print(f"Sent GGA to NTRIP")
+                self.last_gga_sent_to_ntrip = time.time()
+                self.init_gga_sent = True
+            else:
+                RTCM_response = self.receive_rtcm()
                 if RTCM_response:
                     self.serial_com.write(RTCM_response)
-                self.last_gga_sent = time.time()
         else:
             print("Waiting for GNSS fix...")
 
-
     def process_vtg(self, parsed_data):
         if self.fix != 0:
+            current_time = time.time()
+            self.message_dt = current_time - self.last_gga_time_local
+            self.last_gga_time_local = current_time
+
             self.VTGdata = parsed_data
             self.print_data()
             self.append_to_file()
         else:
             print("Waiting for GNSS fix...")
 
+    def parse_gga(self, line):
+        try:
+            parts = line.split(',')
+            if len(parts) < 15:
+                return None
+            lat = self.nmea_to_decimal(parts[2], parts[3])
+            lon = self.nmea_to_decimal(parts[4], parts[5])
+            quality = int(parts[6]) if parts[6].isdigit() else 0
+            return type("GGA", (), {
+                "time": parts[1],
+                "lat": lat,
+                "lon": lon,
+                "quality": quality
+            })()
+        except Exception as e:
+            print(f"Error parsing GGA: {e}")
+            return None
 
-    def run(self):
+    def parse_vtg(self, line):
+        try:
+            parts = line.split(',')
+            if len(parts) < 9:
+                return None
+            cogt = float(parts[1]) if parts[1] else 0.0
+            sogk = float(parts[7]) if parts[7] else 0.0
+            return type("VTG", (), {
+                "cogt": cogt,
+                "sogk": sogk
+            })()
+        except Exception as e:
+            print(f"Error parsing VTG: {e}")
+            return None
+
+    def nmea_to_decimal(self, coord, direction):
+        if not coord or not direction:
+            return 0.0
+        degrees = int(coord[:2 if direction in ['N', 'S'] else 3])
+        minutes = float(coord[2 if direction in ['N', 'S'] else 3:])
+        decimal = degrees + minutes / 60.0
+        if direction in ['S', 'W']:
+            decimal *= -1
+        return decimal
+
+    def run(self, stop_event=None):
         if not self.connect_ntrip():
             return
 
         if not self.connect_gnss():
             return
 
-        self.last_gga_sent = time.time()
+        self.last_gga_sent_to_ntrip = time.time()
+        self.last_gga_time_local = time.time()
 
         while True:
+            if stop_event and stop_event.is_set():
+                print("[GPS] Otrzymano sygnał zatrzymania.")
+                break
+
             try:
                 if not self.serial_com:
                     continue
 
-                raw_data, parsed_data = self.nmr.read()
+                line = self.serial_com.readline().decode(errors='ignore').strip()
+                if not line.startswith('$'):
+                    continue
 
-                if b"GNGGA" in raw_data:
-                    self.process_gga(parsed_data, raw_data)
-                    # last_gga_sent = time.time()
+                if "GGA" in line:
+                    parsed = self.parse_gga(line)
+                    if parsed:
+                        self.process_gga(parsed, line)
 
-                elif b"GNVTG" in raw_data:
-                    self.process_vtg(parsed_data)
+                elif "VTG" in line:
+                    parsed = self.parse_vtg(line)
+                    if parsed:
+                        self.process_vtg(parsed)
 
             except KeyboardInterrupt:
-                print("Stopping client...")
-                if self.sock:
-                    self.sock.close()
-                if self.serial_com:
-                    self.serial_com.close()
                 break
             except Exception as e:
-                pass
+                print(f"[GPS] Błąd w pętli: {e}")
+                continue
+
+        print("[GPS] Zamykanie połączeń...")
+        if self.sock:
+            self.sock.close()
+        if self.serial_com:
+            self.serial_com.close()
 
 
 if __name__ == "__main__":
     client = GPSrtk(
-        serial_port='/dev/ttyUSB0', 
-        baudrate=115200, 
-        caster='system.asgeupos.pl', 
-        port=8080, 
-        mountpoint='/RTN4G_VRS_RTCM32', 
+        serial_port='/dev/ttyUSB0',
+        baudrate=115200,
+        caster='system.asgeupos.pl',
+        port=8080,
+        mountpoint='/RTN4G_VRS_RTCM32',
         user='pwmgr/adamwrb:Globus7142001',
+        filename='dupa.csv',
         save_file=True,
     )
     client.run()

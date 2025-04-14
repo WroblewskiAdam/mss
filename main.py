@@ -28,9 +28,9 @@ def run_imu(stop_event):
         print("[IMU] Startuję...")
 
         date_str = datetime.now().strftime("%d-%m-%y")
-        imu_dir = f"data/{date_str}/imu"
+        imu_dir = f"data/{date_str}/pi41/"
         os.makedirs(imu_dir, exist_ok=True)
-        imu_file_path = os.path.join(imu_dir, "imu_data_pi41_3.csv")
+        imu_file_path = os.path.join(imu_dir, "imu_data_v1.csv")
 
         with open(imu_file_path, mode='w', newline='') as imu_file:
             imu_writer = csv.writer(imu_file)
@@ -91,28 +91,21 @@ def run_imu(stop_event):
                         roll, pitch, yaw = quaternion_to_euler(quat_real, quat_i, quat_j, quat_k)
 
                         print(
-                            "%s | X: %.3f Y: %.3f Z: %.3f m/s^2 | X: %.3f Y: %.3f Z: %.3f m/s^2 | "
-                            "X: %.3f Y: %.3f Z: %.3f rads/s | X: %.3f Y: %.3f Z: %.3f uT | "
-                            "I: %.3f J: %.3f K: %.3f Real: %.3f | R: %.3f P: %.3f Y: %.3f" % (
+                            "%s | X: %.3f Y: %.3f Z: %.3f m/s^2" % (
                                 timestamp,
                                 accel_x, accel_y, accel_z,
-                                lin_accel_x, lin_accel_y, lin_accel_z,
-                                gyro_x, gyro_y, gyro_z,
-                                mag_x, mag_y, mag_z,
-                                quat_i, quat_j, quat_k, quat_real,
-                                roll, pitch, yaw
                             )
                         )
 
-                        # imu_writer.writerow([
-                        #     timestamp,
-                        #     f"{accel_x:.4f}", f"{accel_y:.4f}", f"{accel_z:.4f}",
-                        #     f"{lin_accel_x:.4f}", f"{lin_accel_y:.4f}", f"{lin_accel_z:.4f}",
-                        #     f"{gyro_x:.4f}", f"{gyro_y:.4f}", f"{gyro_z:.4f}",
-                        #     f"{mag_x:.4f}", f"{mag_y:.4f}", f"{mag_z:.4f}",
-                        #     f"{quat_i:.4f}", f"{quat_j:.4f}", f"{quat_k:.4f}", f"{quat_real:.4f}",
-                        #     f"{roll:.4f}", f"{pitch:.4f}", f"{yaw:.4f}"
-                        # ])
+                        imu_writer.writerow([
+                            timestamp,
+                            f"{accel_x:.4f}", f"{accel_y:.4f}", f"{accel_z:.4f}",
+                            f"{lin_accel_x:.4f}", f"{lin_accel_y:.4f}", f"{lin_accel_z:.4f}",
+                            f"{gyro_x:.4f}", f"{gyro_y:.4f}", f"{gyro_z:.4f}",
+                            f"{mag_x:.4f}", f"{mag_y:.4f}", f"{mag_z:.4f}",
+                            f"{quat_i:.4f}", f"{quat_j:.4f}", f"{quat_k:.4f}", f"{quat_real:.4f}",
+                            f"{roll:.4f}", f"{pitch:.4f}", f"{yaw:.4f}"
+                        ])
 
                     except Exception as e:
                         print(f"[IMU] Błąd odczytu: {e}")
@@ -122,61 +115,18 @@ def run_imu(stop_event):
 
 # ---------- Funkcja GPS ----------
 def run_gps(stop_event):
-    # Tworzenie ścieżki i pliku CSV
-    date_str = datetime.now().strftime("%d-%m-%y")
-    gps_dir = f"data/{date_str}/gps"
-    os.makedirs(gps_dir, exist_ok=True)
-    gps_file_path = os.path.join(gps_dir, "gps_data_pi41_3.csv")
-
-    gps = GPSrtk(
+    print("[GPS] Startuję...")
+    gps_client = GPSrtk(
         serial_port='/dev/ttyUSB0',
         baudrate=115200,
         caster='system.asgeupos.pl',
         port=8080,
         mountpoint='/RTN4G_VRS_RTCM32',
         user='pwmgr/adamwrb:Globus7142001',
-        save_file=False
+        filename="gps_data_v1.csv",
+        save_file=True,
     )
-
-    if not gps.connect_ntrip():
-        return
-    if not gps.connect_gnss():
-        return
-
-    with open(gps_file_path, mode='w', newline='') as gps_file:
-        gps_writer = csv.writer(gps_file)
-        gps_writer.writerow([
-            "Timestamp", "GPS time", "Latitude", "Longitude", "Altitude", "Course", "Speed_og" "Quality"
-        ])
-
-        while not stop_event.is_set():
-            try:
-                raw_data, parsed_data = gps.nmr.read()
-                if raw_data is None:
-                    continue
-                if b"GNGGA" in raw_data:
-                    RTCM_response = gps.send_gga_to_ntrip(raw_data.decode())
-                    gps.serial_com.write(RTCM_response)
-                    gps.GGAdata = parsed_data
-                if b"GNVTG" in raw_data:
-                    gps.VTGdata = parsed_data
-                    gps.print_data()
-
-                    # timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-                    # if gps.GGAdata and gps.VTGdata:
-                    #     gps_writer.writerow([
-                    #         timestamp,
-                    #         gps.GGAdata.time,
-                    #         f"{gps.GGAdata.lat:.8f}",
-                    #         f"{gps.GGAdata.lon:.8f}",
-                    #         f"{gps.GGAdata.alt:.4f}",
-                    #         f"{gps.VTGdata.cogt:.4f}",
-                    #         f"{gps.VTGdata.sogk:.4f}",
-                    #         gps.GGAdata.quality,
-                    #     ])
-            except Exception as e:
-                print(f"Błąd w pętli GPS: {e}")
-
+    gps_client.run(stop_event=stop_event)
 
 # ---------- Główna część ----------
 if __name__ == "__main__":
