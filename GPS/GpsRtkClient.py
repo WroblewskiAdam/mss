@@ -26,6 +26,7 @@ class GPSrtk:
         self.filename = 'gps_data_v2.csv' if filename is None else filename
         self.save_file = save_file
         self.hostname = socket.gethostname()
+        self.fix = None
 
 
     def connect_ntrip(self):
@@ -134,18 +135,31 @@ class GPSrtk:
         if not self.connect_gnss():
             return
 
+        last_gga_sent = time.time()
         while True:
             try:
                 if self.serial_com:
                     raw_data, parsed_data = self.nmr.read()
                     if b"GNGGA" in raw_data:
-                        RTCM_response = self.send_gga_to_ntrip(raw_data.decode())
-                        self.serial_com.write(RTCM_response)
-                        self.GGAdata = parsed_data
+                        self.fix = parsed_data.quality
+                        if self.fix != 0:
+                            current_time = time.time()
+                            if current_time - last_gga_sent >= 10:
+                                RTCM_response = self.send_gga_to_ntrip(raw_data.decode())
+                                if RTCM_response:
+                                    self.serial_com.write(RTCM_response)
+                                last_gga_sent = current_time
+                            self.GGAdata = parsed_data
+                        else:
+                            print("Waiting for GNSS fix...")
                     if b"GNVTG" in raw_data:
-                        self.VTGdata = parsed_data
-                        self.print_data()
-                        self.append_to_file()
+                        if self.fix != 0:
+                            self.VTGdata = parsed_data
+                            self.print_data()
+                            self.append_to_file()
+                        else:
+                            print("Waiting for GNSS fix...")
+                    
             
             except KeyboardInterrupt:
                 print("Stopping client...")

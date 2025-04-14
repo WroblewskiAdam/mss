@@ -30,7 +30,7 @@ def run_imu(stop_event):
         date_str = datetime.now().strftime("%d-%m-%y")
         imu_dir = f"data/{date_str}/imu"
         os.makedirs(imu_dir, exist_ok=True)
-        imu_file_path = os.path.join(imu_dir, "imu_data.csv")
+        imu_file_path = os.path.join(imu_dir, "imu_data_pi41_3.csv")
 
         with open(imu_file_path, mode='w', newline='') as imu_file:
             imu_writer = csv.writer(imu_file)
@@ -104,15 +104,15 @@ def run_imu(stop_event):
                             )
                         )
 
-                        imu_writer.writerow([
-                            timestamp,
-                            f"{accel_x:.4f}", f"{accel_y:.4f}", f"{accel_z:.4f}",
-                            f"{lin_accel_x:.4f}", f"{lin_accel_y:.4f}", f"{lin_accel_z:.4f}",
-                            f"{gyro_x:.4f}", f"{gyro_y:.4f}", f"{gyro_z:.4f}",
-                            f"{mag_x:.4f}", f"{mag_y:.4f}", f"{mag_z:.4f}",
-                            f"{quat_i:.4f}", f"{quat_j:.4f}", f"{quat_k:.4f}", f"{quat_real:.4f}",
-                            f"{roll:.4f}", f"{pitch:.4f}", f"{yaw:.4f}"
-                        ])
+                        # imu_writer.writerow([
+                        #     timestamp,
+                        #     f"{accel_x:.4f}", f"{accel_y:.4f}", f"{accel_z:.4f}",
+                        #     f"{lin_accel_x:.4f}", f"{lin_accel_y:.4f}", f"{lin_accel_z:.4f}",
+                        #     f"{gyro_x:.4f}", f"{gyro_y:.4f}", f"{gyro_z:.4f}",
+                        #     f"{mag_x:.4f}", f"{mag_y:.4f}", f"{mag_z:.4f}",
+                        #     f"{quat_i:.4f}", f"{quat_j:.4f}", f"{quat_k:.4f}", f"{quat_real:.4f}",
+                        #     f"{roll:.4f}", f"{pitch:.4f}", f"{yaw:.4f}"
+                        # ])
 
                     except Exception as e:
                         print(f"[IMU] Błąd odczytu: {e}")
@@ -126,7 +126,7 @@ def run_gps(stop_event):
     date_str = datetime.now().strftime("%d-%m-%y")
     gps_dir = f"data/{date_str}/gps"
     os.makedirs(gps_dir, exist_ok=True)
-    gps_file_path = os.path.join(gps_dir, "gps_data.csv")
+    gps_file_path = os.path.join(gps_dir, "gps_data_pi41_3.csv")
 
     gps = GPSrtk(
         serial_port='/dev/ttyUSB0',
@@ -146,7 +146,7 @@ def run_gps(stop_event):
     with open(gps_file_path, mode='w', newline='') as gps_file:
         gps_writer = csv.writer(gps_file)
         gps_writer.writerow([
-            "Timestamp", "Latitude", "Longitude", "Altitude", "Course", "Speed_og" "Quality"
+            "Timestamp", "GPS time", "Latitude", "Longitude", "Altitude", "Course", "Speed_og" "Quality"
         ])
 
         while not stop_event.is_set():
@@ -162,17 +162,18 @@ def run_gps(stop_event):
                     gps.VTGdata = parsed_data
                     gps.print_data()
 
-                    timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-                    if gps.GGAdata and gps.VTGdata:
-                        gps_writer.writerow([
-                            timestamp,
-                            f"{gps.GGAdata.lat:.8f}",
-                            f"{gps.GGAdata.lon:.8f}",
-                            f"{gps.GGAdata.alt:.8f}",
-                            f"{gps.VTGdata.cogt:.4f}",
-                            f"{gps.VTGdata.sogk:.4f}",
-                            gps.GGAdata.quality,
-                        ])
+                    # timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                    # if gps.GGAdata and gps.VTGdata:
+                    #     gps_writer.writerow([
+                    #         timestamp,
+                    #         gps.GGAdata.time,
+                    #         f"{gps.GGAdata.lat:.8f}",
+                    #         f"{gps.GGAdata.lon:.8f}",
+                    #         f"{gps.GGAdata.alt:.4f}",
+                    #         f"{gps.VTGdata.cogt:.4f}",
+                    #         f"{gps.VTGdata.sogk:.4f}",
+                    #         gps.GGAdata.quality,
+                    #     ])
             except Exception as e:
                 print(f"Błąd w pętli GPS: {e}")
 
@@ -189,7 +190,7 @@ if __name__ == "__main__":
         imu_thread.start()
 
         while True:
-            time.sleep(1)
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
         print("\nZatrzymywanie programu...")
