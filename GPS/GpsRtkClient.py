@@ -27,6 +27,7 @@ class GPSrtk:
         self.save_file = save_file
         self.hostname = socket.gethostname()
         self.fix = None
+        self.last_gga_sent = None
 
 
     def connect_ntrip(self):
@@ -125,42 +126,54 @@ class GPSrtk:
             local_time = datetime.now().strftime('%H:%M:%S.%f')[:-3]
             print(f"T: {local_time}, Tgps: {self.GGAdata.time}, Lat: {self.GGAdata.lat:.4f}, " f"Lon: {self.GGAdata.lon:.4f}, C: {self.VTGdata.cogt:.2f}, V: {self.VTGdata.sogk:.3f} km/s, " f"Q: {self.GGAdata.quality}")
 
+    def process_gga(self, parsed_data, raw_data):
+        self.fix = parsed_data.quality
+        self.GGAdata = parsed_data
+
+        if self.fix != 0:
+            current_time = time.time()
+            if current_time - self.last_gga_sent >= 10:
+                RTCM_response = self.send_gga_to_ntrip(raw_data.decode())
+                print(f"Sent GGA to NTRIP")
+                if RTCM_response:
+                    self.serial_com.write(RTCM_response)
+                self.last_gga_sent = time.time()
+        else:
+            print("Waiting for GNSS fix...")
+
+
+    def process_vtg(self, parsed_data):
+        if self.fix != 0:
+            self.VTGdata = parsed_data
+            self.print_data()
+            self.append_to_file()
+        else:
+            print("Waiting for GNSS fix...")
+
 
     def run(self):
-        # Establish NTRIP connaction
         if not self.connect_ntrip():
             return
-        
-        # Establish connection with GPS module
+
         if not self.connect_gnss():
             return
 
-        last_gga_sent = time.time()
+        self.last_gga_sent = time.time()
+
         while True:
             try:
-                if self.serial_com:
-                    raw_data, parsed_data = self.nmr.read()
-                    if b"GNGGA" in raw_data:
-                        self.fix = parsed_data.quality
-                        if self.fix != 0:
-                            current_time = time.time()
-                            if current_time - last_gga_sent >= 10:
-                                RTCM_response = self.send_gga_to_ntrip(raw_data.decode())
-                                if RTCM_response:
-                                    self.serial_com.write(RTCM_response)
-                                last_gga_sent = current_time
-                            self.GGAdata = parsed_data
-                        else:
-                            print("Waiting for GNSS fix...")
-                    if b"GNVTG" in raw_data:
-                        if self.fix != 0:
-                            self.VTGdata = parsed_data
-                            self.print_data()
-                            self.append_to_file()
-                        else:
-                            print("Waiting for GNSS fix...")
-                    
-            
+                if not self.serial_com:
+                    continue
+
+                raw_data, parsed_data = self.nmr.read()
+
+                if b"GNGGA" in raw_data:
+                    self.process_gga(parsed_data, raw_data)
+                    # last_gga_sent = time.time()
+
+                elif b"GNVTG" in raw_data:
+                    self.process_vtg(parsed_data)
+
             except KeyboardInterrupt:
                 print("Stopping client...")
                 if self.sock:
@@ -169,9 +182,8 @@ class GPSrtk:
                     self.serial_com.close()
                 break
             except Exception as e:
-                # print(f"Unexpected error: {e}")
                 pass
-                # time.sleep(2)
+
 
 if __name__ == "__main__":
     client = GPSrtk(
