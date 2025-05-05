@@ -51,10 +51,10 @@ def ned_to_lla(ned, ref_lla):
     return np.array([new_lat, new_lon, new_alt])
 
 # --- Funkcja detekcji postoju (ZUPT) ---
-ZUPT_GPS_SPEED_THRESHOLD = 0.15 # Próg prędkości GPS [m/s] - DOSTROJ!
-ZUPT_ACCEL_STD_THRESHOLD = 0.2  # Próg odch. std. akcelerometru [m/s^2] - DOSTROJ!
-ZUPT_GYRO_STD_THRESHOLD  = 0.03 # Próg odch. std. żyroskopu [rad/s] - DOSTROJ!
-ZUPT_WINDOW_SIZE       = 25    # Rozmiar okna IMU do analizy (liczba próbek) - DOSTROJ!
+ZUPT_GPS_SPEED_THRESHOLD = 0.2 # Próg prędkości GPS [m/s] - DOSTROJ!
+ZUPT_ACCEL_STD_THRESHOLD = 0.15  # Próg odch. std. akcelerometru [m/s^2] - DOSTROJ!
+ZUPT_GYRO_STD_THRESHOLD  = 0.06 # Próg odch. std. żyroskopu [rad/s] - DOSTROJ!
+ZUPT_WINDOW_SIZE       = 50    # Rozmiar okna IMU do analizy (liczba próbek) - DOSTROJ!
 
 def detect_standstill(imu_window, latest_gps_speed):
     """Wykrywa postój na podstawie danych z okna IMU i ostatniej prędkości GPS."""
@@ -243,8 +243,8 @@ class InsEkf(ExtendedKalmanFilter):
 # --- Ładowanie i przygotowanie danych (bez zmian) ---
 print("Ładowanie danych...")
 # Użyj poprawnych ścieżek do plików
-gps_file_path = 'D:/Studia/MGR/Magisterka/data/27-04-25/pi4/gps_data_tractor_v3.csv'
-imu_file_path = 'D:/Studia/MGR/Magisterka/data/27-04-25/pi4/imu_data_tractor_v3.csv'
+gps_file_path = 'D:/Studia/MGR/Magisterka/data/27-04-25/pi4/gps_data_tractor_v1.csv'
+imu_file_path = 'D:/Studia/MGR/Magisterka/data/27-04-25/pi4/imu_data_tractor_v1.csv'
 
 try:
     gps_data_org = pd.read_csv(gps_file_path)
@@ -298,7 +298,7 @@ try:
        gps_data['VelE'] = 0.0
        gps_data['VelD'] = 0.0
 
-    accel_cols = ['LinAccel_X', 'LinAccel_Y', 'LinAccel_Z']
+    accel_cols = ['Accel_X', 'Accel_Y', 'Accel_Z']
     gyro_cols = ['Gyro_X', 'Gyro_Y', 'Gyro_Z']
     mag_cols = ['Mag_X', 'Mag_Y', 'Mag_Z']
 
@@ -388,15 +388,15 @@ initial_cov = np.diag([
 
 # === NOWE WARTOŚCI Q i R === (Bazując na poprzednich sugestiach, ale nadal wymagają strojenia)
 Q_std_devs = [
-    1.0,     # Accel Noise (m/s^2 / sqrt(Hz)) - Zwiększone!
+    0.08,     # Accel Noise (m/s^2 / sqrt(Hz)) - Zwiększone!
     2e-2,    # Gyro Noise (rad/s / sqrt(Hz)) - Lekko zwiększone
-    5e-3,    # Accel Bias Random Walk (m/s^3 / sqrt(Hz)) - Zwiększone!
-    2e-4     # Gyro Bias Random Walk (rad/s^2 / sqrt(Hz)) - Zwiększone!
+    2.5e-3,    # Accel Bias Random Walk (m/s^3 / sqrt(Hz)) - Zwiększone!
+    2e-3     # Gyro Bias Random Walk (rad/s^2 / sqrt(Hz)) - Zwiększone!
 ]
 
-RTK_FIXED_POS_STD_HORIZ = 0.04 # [m]
-RTK_FIXED_POS_STD_VERT = 0.03  # [m] - Zwykle większa niepewność pionowa
-RTK_FIXED_VEL_STD      = 0.03  # [m/s] - Trochę mniej optymistycznie
+RTK_FIXED_POS_STD_HORIZ = 0.03 # [m]
+RTK_FIXED_POS_STD_VERT = 0.1  # [m] - Zwykle większa niepewność pionowa
+RTK_FIXED_VEL_STD      = 0.1  # [m/s] - Trochę mniej optymistycznie
 MAG_STD = 5.0                  # [uT lub inna jednostka] - Większa niepewność Mag
 
 R_gps_pos = [RTK_FIXED_POS_STD_HORIZ, RTK_FIXED_POS_STD_HORIZ, RTK_FIXED_POS_STD_VERT]
@@ -501,8 +501,8 @@ for i in range(num_samples):
         imu_window.append(last_imu_reading)
 
         # --- Sprawdź warunki ZUPT ---
-        # is_stationary = detect_standstill(imu_window, latest_gps_speed)
-        is_stationary = False
+        is_stationary = detect_standstill(imu_window, latest_gps_speed)
+        # is_stationary = False
         if is_stationary:
             zupt_active_flags[i] = True # Ustaw flagę
             z_zupt = np.zeros(3) # Pomiar zerowej prędkości
@@ -621,7 +621,8 @@ if len(zupt_indices) > 0:
 
 plt.xlabel("Czas (s)")
 plt.ylabel("Prędkość (m/s)")
-plt.title("Estymowana prędkość vs Prędkość GPS (z ZUPT)")
+# plt.title("Estymowana prędkość vs Prędkość GPS (z ZUPT)")
+plt.title("Estymowana prędkość vs Prędkość GPS")
 plt.legend()
 plt.grid(True)
 plt.ylim(bottom=-0.2) # Zostaw trochę miejsca na wskaźnik ZUPT
