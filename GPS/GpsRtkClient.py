@@ -103,10 +103,10 @@ class GPSrtk:
                 with open(file_path, 'a', newline='') as file:
                     writer = csv.writer(file)
                     if file.tell() == 0:
-                        writer.writerow(["dt, Local Time", "GPS Time", "Latitude", "Longitude", "Heading", "Speed", "Quality"])
+                        writer.writerow(["dt, Local Time", "GPS Time", "Latitude", "Longitude", "Altitude", "Heading", "Speed", "Quality"])
                     writer.writerow([
                         f"{self.message_dt:.3f}", local_time, self.GGAdata.time,
-                        f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}",
+                        f"{self.GGAdata.lat:.8f}", f"{self.GGAdata.lon:.8f}", f"{self.GGAdata.altitude:.2f}", 
                         f"{self.VTGdata.cogt:.2f}", self.VTGdata.sogk,
                         self.GGAdata.quality
                     ])
@@ -118,7 +118,7 @@ class GPSrtk:
         if self.GGAdata and self.VTGdata:
             local_time = datetime.now().strftime('%H:%M:%S.%f')[:-3]
             print(f"dt: {self.message_dt:.3f},T: {local_time}, Tgps: {self.GGAdata.time}, Lat: {self.GGAdata.lat:.4f}, "
-                  f"Lon: {self.GGAdata.lon:.4f}, C: {self.VTGdata.cogt:.2f}, "
+                  f"Lon: {self.GGAdata.lon:.4f}, H: {self.GGAdata.altitude:.2f}, C: {self.VTGdata.cogt:.2f}, "
                   f"V: {self.VTGdata.sogk:.3f} km/s, Q: {self.GGAdata.quality}")
 
 
@@ -160,11 +160,13 @@ class GPSrtk:
             lat = self.nmea_to_decimal(parts[2], parts[3])
             lon = self.nmea_to_decimal(parts[4], parts[5])
             quality = int(parts[6]) if parts[6].isdigit() else 0
+            altitude = float(parts[9]) if parts[9] else 0.0  # Dodajemy wysokość
             return type("GGA", (), {
                 "time": parts[1],
                 "lat": lat,
                 "lon": lon,
-                "quality": quality
+                "quality": quality,
+                "altitude": altitude
             })()
         except Exception as e:
             print(f"Error parsing GGA: {e}")

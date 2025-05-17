@@ -4,14 +4,10 @@ from datetime import datetime
 import os
 import sys
 import csv
-
-sys.path.append("/home/pi/mss")
-from GPS.GpsRtkClient import GPSrtk
-from IMU.ImuReader import IMUReader
+import math
 
 import board
 import busio
-import math
 from adafruit_bno08x import (
     BNO_REPORT_ACCELEROMETER,
     BNO_REPORT_GYROSCOPE,
@@ -20,9 +16,11 @@ from adafruit_bno08x import (
     BNO_REPORT_LINEAR_ACCELERATION,
 )
 from adafruit_bno08x.i2c import BNO08X_I2C
+from adafruit_servokit import ServoKit  # <--- nowa biblioteka do serwa
 
-custom_file_name = "skok_bieg_21_v3"  # Ustaw nazwę pliku, np. "test" lub "test_1"
-print_IMU = False  # Ustaw na True, aby wyświetlać dane IMU w konsoli
+sys.path.append("/home/pi/mss")
+from GPS.GpsRtkClient import GPSrtk
+from IMU.ImuReader import IMUReader
 
 
 # ---------- Funkcja IMU ----------
@@ -33,7 +31,7 @@ def run_imu(stop_event):
         date_str = datetime.now().strftime("%d-%m-%y")
         imu_dir = f"data/{date_str}/pi41/"
         os.makedirs(imu_dir, exist_ok=True)
-        imu_file_path = os.path.join(imu_dir, f"imu_data_{custom_file_name}.csv")
+        imu_file_path = os.path.join(imu_dir, "imu_data_v3.csv")
 
         with open(imu_file_path, mode='w', newline='') as imu_file:
             imu_writer = csv.writer(imu_file)
@@ -77,7 +75,7 @@ def run_imu(stop_event):
 
                 return roll_x, pitch_y, yaw_z
 
-            interval = 0.01
+            interval = 0.1
             last_time = time.perf_counter()
 
             while not stop_event.is_set():
@@ -92,14 +90,6 @@ def run_imu(stop_event):
                         mag_x, mag_y, mag_z = bno.magnetic
                         quat_i, quat_j, quat_k, quat_real = bno.quaternion
                         roll, pitch, yaw = quaternion_to_euler(quat_real, quat_i, quat_j, quat_k)
-
-                        if print_IMU:
-                            print(
-                                "%s | X: %.3f Y: %.3f Z: %.3f m/s^2" % (
-                                    timestamp,
-                                    accel_x, accel_y, accel_z,
-                                )
-                            )
 
                         imu_writer.writerow([
                             timestamp,
@@ -127,10 +117,48 @@ def run_gps(stop_event):
         port=8080,
         mountpoint='/RTN4G_VRS_RTCM32',
         user='pwmgr/adamwrb:Globus7142001',
-        filename=f"gps_data_{custom_file_name}.csv",
+        filename="gps_data_v3.csv",
         save_file=True,
     )
     gps_client.run(stop_event=stop_event)
+
+
+# ---------- Funkcja Serwo ----------
+def run_servo(stop_event):
+    print("[SERVO] Startuję...")
+
+    kit = ServoKit(channels=16)
+    SERVO_CHANNEL = 0
+    kit.servo[SERVO_CHANNEL].set_pulse_width_range(500, 2500)
+
+    angle = 30
+    direction = 1  # 1 = w górę, -1 = w dół
+    next_change_time = time.time() + 10
+
+    kit.servo[SERVO_CHANNEL].angle = angle
+    print(f"[SERVO] Ustawiam początkowy kąt: {angle}°")
+
+    while not stop_event.is_set():
+        now = time.time()
+        if now >= next_change_time:
+            angle += 5 * direction
+
+            # Sprawdzenie czy trzeba zmienić kierunek
+            if angle >= 130:
+                angle = 130
+                direction = -1
+                print("[SERVO] Osiągnięto maksymalny kąt – zawracam w dół.")
+            elif angle <= 30:
+                angle = 30
+                direction = 1
+                print("[SERVO] Osiągnięto minimalny kąt – zawracam w górę.")
+
+            print(f"[SERVO] Ustawiam kąt: {angle}°")
+            kit.servo[SERVO_CHANNEL].angle = angle
+            next_change_time = now + 10
+
+        time.sleep(0.1)  # Krótkie opóźnienie oszczędzające CPU
+
 
 # ---------- Główna część ----------
 if __name__ == "__main__":
@@ -139,16 +167,19 @@ if __name__ == "__main__":
     try:
         gps_thread = threading.Thread(target=run_gps, args=(stop_event,))
         imu_thread = threading.Thread(target=run_imu, args=(stop_event,))
+        servo_thread = threading.Thread(target=run_servo, args=(stop_event,))
 
         gps_thread.start()
         imu_thread.start()
+        servo_thread.start()
 
         while True:
-            time.sleep(0.01)
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
         print("\nZatrzymywanie programu...")
         stop_event.set()
         gps_thread.join()
         imu_thread.join()
+        servo_thread.join()
         print("Zamknięto poprawnie.")

@@ -82,10 +82,11 @@ def wykonaj_sekwencje(kanal, sekwencja, predkosc):
     for kat in sekwencja:
         print(f"\nWykonuję ruch do {kat}° z prędkością {predkosc}")
         plynny_ruch(kanal, kat, predkosc)
-        time.sleep(0.7)  # Przerwa 1 sekunda pomiędzy kolejnymi ruchami w sekwencji
+        time.sleep(0.5)  # Przerwa 1 sekunda pomiędzy kolejnymi ruchami w sekwencji
 
 try:
-    print("Program sterowania serwem - wpisz 'q' aby zakończyć")
+    print("Program sterowania serwem - wpiss" \
+    "z 'q' aby zakończyć")
     print("Prędkość: 1-10")
     print("1 = najwolniej")
     print("10 = maksymalna prędkość (ruch natychmiastowy)")
@@ -93,7 +94,6 @@ try:
     
     while True:
         print("\nAktualna pozycja serwa:", pobierz_aktualna_pozycje(SERVO_CHANNEL), "°")
-        
         # Pobieranie danych od użytkownika
         wybor = input("\nWprowadź kąt (0-180), 's' dla sekwencji lub 'q' aby zakończyć: ")
         
@@ -101,7 +101,8 @@ try:
             break
             
         if wybor.lower() == 's':
-            sekwencja = [0, 180, 0, 90, 0, 90, 0, 180, 90, 180, 90, 0, 180, 0]
+            sekwencja = [0, 130, 0, 90, 0, 50, 0, 130, 30, 130, 70, 0, 130, 0]
+            # sekwencja = [0,10,20,30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150]
             wykonaj_sekwencje(SERVO_CHANNEL, sekwencja, 10)
             continue
             
@@ -111,7 +112,8 @@ try:
                 print("Kąt musi być w zakresie 0-180°")
                 continue
                 
-            predkosc = pobierz_wartosc("Wprowadź prędkość (1-10, gdzie 1=najwolniej, 10=najszybciej): ", 1, 10)
+            # predkosc = pobierz_wartosc("Wprowadź prędkość (1-10, gdzie 1=najwolniej, 10=najszybciej): ", 1, 10)
+            predkosc = 10
             
             print(f"\nWykonuję ruch do {kat}° z prędkością {predkosc}")
             plynny_ruch(SERVO_CHANNEL, kat, predkosc)

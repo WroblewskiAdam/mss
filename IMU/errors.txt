@@ -1,0 +1,11 @@
+ python Madgwick_2.py 
+Traceback (most recent call last):
+  File "/home/pi/mss/IMU/Madgwick_2.py", line 4, in <module>
+    from pyqtgraph.Qt import QtGui, QtCore
+  File "/home/pi/mss/mss_venv/lib/python3.11/site-packages/pyqtgraph/__init__.py", line 18, in <module>
+    from .colors import palette
+  File "/home/pi/mss/mss_venv/lib/python3.11/site-packages/pyqtgraph/colors/palette.py", line 1, in <module>
+    from ..Qt import QtGui
+  File "/home/pi/mss/mss_venv/lib/python3.11/site-packages/pyqtgraph/Qt/__init__.py", line 57, in <module>
+    raise ImportError("PyQtGraph requires one of PyQt5, PyQt6, PySide2 or PySide6; none of these packages could be imported.")
+ImportError: PyQtGraph requires one of PyQt5, PyQt6, PySide2 or PySide6; none of these packages could be imported.

@@ -20,8 +20,10 @@ from adafruit_bno08x import (
     BNO_REPORT_LINEAR_ACCELERATION,
 )
 from adafruit_bno08x.i2c import BNO08X_I2C
+from adafruit_servokit import ServoKit
 
-custom_file_name = "skok_bieg_21_v3"  # Ustaw nazwę pliku, np. "test" lub "test_1"
+
+
 print_IMU = False  # Ustaw na True, aby wyświetlać dane IMU w konsoli
 
 
@@ -132,23 +134,82 @@ def run_gps(stop_event):
     )
     gps_client.run(stop_event=stop_event)
 
+
+custom_file_name = "skok_bieg_21_v3"  # Ustaw nazwę pliku, np. "test" lub "test_1"
+def run_servo(stop_event):
+    print("[SERVO] Startuję...")
+
+    date_str = datetime.now().strftime("%d-%m-%y")
+    imu_dir = f"data/{date_str}/pi41/"
+    os.makedirs(imu_dir, exist_ok=True)
+    imu_file_path = os.path.join(imu_dir, f"servo_data_{custom_file_name}.csv")
+
+    with open(imu_file_path, mode='w', newline='') as imu_file:
+        imu_writer = csv.writer(imu_file)
+        imu_writer.writerow(["Timestamp", "Servo value"])
+
+        kit = ServoKit(channels=16)
+        SERVO_CHANNEL = 0
+        kit.servo[SERVO_CHANNEL].set_pulse_width_range(500, 2500)
+
+        angle = 30
+        direction = 1  # 1 = w górę, -1 = w dół
+        delay = 8
+        angle_increment = 90
+        next_change_time = time.time() + delay
+
+        kit.servo[SERVO_CHANNEL].angle = angle
+        print(f"[SERVO] Ustawiam początkowy kąt: {angle}°")
+
+        while not stop_event.is_set():
+            now = time.time()
+            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            imu_writer.writerow([timestamp, angle])
+
+            if now >= next_change_time:
+                angle = 50
+                # angle += angle_increment * direction
+                # Sprawdzenie czy trzeba zmienić kierunek
+                # if angle >= 150:
+                #     angle = 0
+                #     # direction = -1
+                #     print("[SERVO] Osiągnięto maksymalny kąt – zawracam w dół.")
+                # elif angle <= 30:
+                #     angle = 30
+                #     direction = 1
+                #     print("[SERVO] Osiągnięto minimalny kąt – zawracam w górę.")
+
+                print(f"[SERVO] Ustawiam kąt: {angle}°")
+                kit.servo[SERVO_CHANNEL].angle = angle
+                next_change_time = now + delay
+
+            time.sleep(0.1)  # Krótkie opóźnienie oszczędzające CPU
+
+
 # ---------- Główna część ----------
 if __name__ == "__main__":
     stop_event = threading.Event()
 
     try:
-        gps_thread = threading.Thread(target=run_gps, args=(stop_event,))
-        imu_thread = threading.Thread(target=run_imu, args=(stop_event,))
+        # gps_thread = threading.Thread(target=run_gps, args=(stop_event,))
+        # imu_thread = threading.Thread(target=run_imu, args=(stop_event,))
+        servo_thread = threading.Thread(target=run_servo, args=(stop_event,))
 
-        gps_thread.start()
-        imu_thread.start()
+
+        # gps_thread.start()
+        # imu_thread.start()
+        servo_thread.start()
 
         while True:
             time.sleep(0.01)
 
     except KeyboardInterrupt:
         print("\nZatrzymywanie programu...")
+
+
+
         stop_event.set()
-        gps_thread.join()
-        imu_thread.join()
+        # gps_thread.join()
+        # imu_thread.join()
+        servo_thread.join()
         print("Zamknięto poprawnie.")
